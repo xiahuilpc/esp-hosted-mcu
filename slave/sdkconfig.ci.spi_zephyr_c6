@@ -1,0 +1,6 @@
+# sdkconfig.ci.spi_zephyr_c6
+# CI build config for ESP32-C6 with SPI Full-duplex transport and Zephyr host.
+# Handshake and Data Ready are merged onto a single GPIO (one-pin interrupt mode).
+CONFIG_ESP_SPI_HOST_INTERFACE=y
+CONFIG_ESP_SPI_GPIO_HANDSHAKE=15
+CONFIG_ESP_SPI_GPIO_DATA_READY=15
