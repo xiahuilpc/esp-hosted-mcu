@@ -51,35 +51,20 @@ jobs:
           submodules: recursive
 
       # -----------------------------------------------------------------------
-      # Install idf-build-apps (not bundled in the IDF Docker image by default)
-      - name: Install idf-build-apps
-        shell: bash
-        run: |
-          . ${IDF_PATH}/export.sh
-          pip install idf-build-apps
-
-      # -----------------------------------------------------------------------
-      # Build the slave coprocessor firmware using idf-build-apps, following
-      # the same pattern as .gitlab/ci/templates.yml (.build_template_coprocessor).
+      # Build the slave coprocessor firmware using the official idf.py tool.
+      # SDKCONFIG_DEFAULTS (semicolon-separated) tells idf.py to merge the three
+      # sdkconfig layers in order:
+      #   1. sdkconfig.defaults          – project-wide base settings
+      #   2. sdkconfig.defaults.esp32c6  – chip-specific overrides
+      #   3. sdkconfig.ci.spi_zephyr_c6  – CI/transport-specific overrides
       - name: Build slave firmware for ESP32-C6 (SPI FD, IO15 handshake)
         shell: bash
         run: |
           . ${IDF_PATH}/export.sh
           cd slave
-          # idf-build-apps merges sdkconfig.defaults, sdkconfig.defaults.esp32c6,
-          # and sdkconfig.ci.spi_zephyr_c6 automatically in that order.
-          idf-build-apps find \
-            -p . \
-            --enable-preview-targets \
-            --config sdkconfig.ci.spi_zephyr_c6 \
-            -vv \
-            --target esp32c6
-          idf-build-apps build \
-            -p . \
-            --enable-preview-targets \
-            --config sdkconfig.ci.spi_zephyr_c6 \
-            -vv \
-            --target esp32c6
+          export SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.esp32c6;sdkconfig.ci.spi_zephyr_c6"
+          idf.py set-target esp32c6
+          idf.py build
 
       # -----------------------------------------------------------------------
       # Collect the three flashable binaries plus the flasher_args file into a
@@ -90,8 +75,8 @@ jobs:
           DEST=firmware_esp32c6_spi_zephyr
           mkdir -p "${DEST}"
 
-          # idf-build-apps places output under slave/build_<target>_<config>/
-          BUILD_DIR=$(find slave -maxdepth 1 -type d -name 'build_esp32c6*' | head -1)
+          # idf.py always places build output under slave/build/
+          BUILD_DIR=slave/build
           echo "Build directory: ${BUILD_DIR}"
 
           cp "${BUILD_DIR}/network_adapter.bin"                         "${DEST}/"
@@ -150,6 +135,10 @@ jobs:
           | **Handshake + Data Ready**     | **GPIO 15**          | Single GPIO (input, rising-edge IRQ)|
           | Reset                          | EN / RST             | Optional GPIO (output)              |
 
+          > Both Handshake and Data Ready are driven on GPIO 15.  The pin goes HIGH
+          > whenever the co-processor is ready for a transaction **or** has data to send.
+          > Bluetooth HCI is tunnelled over the same SPI bus; no extra UART wires needed.
+
           ## Flash Command
 
           Make sure `esptool.py` is installed (`pip install esptool`), then:
@@ -172,6 +161,14 @@ jobs:
           ```bash
           idf.py -p /dev/ttyUSB0 flash
           ```
+
+          ## Zephyr 4.3 host configuration
+
+          In your Zephyr application enable:
+          - `CONFIG_WIFI_ESP_HOSTED=y`        – Wi-Fi via ESP-Hosted
+          - `CONFIG_BT=y` + `CONFIG_BT_HCI_ESP_HOSTED=y` – Bluetooth via ESP-Hosted
+          - Map a single interrupt-capable GPIO on the host to GPIO 15 on the ESP32-C6.
+          - Configure that GPIO as a rising-edge interrupt (one-pin mode).
           FLASH_GUIDE
 
           echo "Artifacts in ${DEST}:"
