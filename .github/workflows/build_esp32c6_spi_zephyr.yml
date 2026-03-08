@@ -97,6 +97,33 @@ jobs:
           cat > "${DEST}/FLASH_INSTRUCTIONS.md" << 'FLASH_GUIDE'
           # Flash Instructions – ESP32-C6 SPI Full-duplex Firmware (Zephyr host)
 
+          ## Where to find the compiled binaries / 编译产物在哪里
+
+          The three `.bin` files are uploaded as a **GitHub Actions artifact** at the end
+          of every successful CI run.  To download them:
+
+          1. Open the repository on GitHub and click the **Actions** tab.
+          2. Select the workflow run named
+             **"Build ESP32-C6 Slave Firmware (SPI Full-duplex, Zephyr host)"**.
+          3. Scroll to the **Artifacts** section at the bottom of the run summary page.
+          4. Click **`esp32c6-spi-zephyr-firmware`** to download a ZIP archive.
+          5. Extract the ZIP.  It contains:
+
+          | File                    | Flash address | Description                  |
+          |-------------------------|---------------|------------------------------|
+          | `bootloader.bin`        | `0x0000`      | Second-stage bootloader      |
+          | `partition-table.bin`   | `0x8000`      | Partition table              |
+          | `network_adapter.bin`   | `0x10000`     | Main application firmware    |
+          | `flasher_args.json`     | —             | esptool address map          |
+          | `flash_project_args`    | —             | idf.py flash arguments       |
+          | `sdkconfig`             | —             | Resolved build configuration |
+          | `FLASH_INSTRUCTIONS.md` | —             | This file                    |
+
+          > Artifacts are retained for **90 days**.  If the link has expired, trigger a
+          > new build via **Actions → Run workflow** (workflow_dispatch).
+
+          ---
+
           ## One-pin interrupt mode
 
           This firmware uses **one-pin interrupt mode**: the Handshake and Data Ready
