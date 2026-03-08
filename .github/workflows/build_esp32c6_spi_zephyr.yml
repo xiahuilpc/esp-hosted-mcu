@@ -20,11 +20,11 @@ on:
 # Target chip  : ESP32-C6
 # Transport    : SPI Full-duplex
 # Handshake    : GPIO15  (user-specified)
+# Data Ready   : GPIO15  (merged with Handshake — one-pin interrupt mode)
 # MOSI         : GPIO7   (default for standalone ESP32-C6)
 # MISO         : GPIO2   (default for standalone ESP32-C6)
 # SCLK         : GPIO6   (default for standalone ESP32-C6)
 # CS           : GPIO10  (default for standalone ESP32-C6)
-# Data Ready   : GPIO4   (default for standalone ESP32-C6)
 # Reset        : -1      (reuse EN/RST pin)
 # Bluetooth    : enabled (HCI over SPI, default for C6)
 # Host RTOS    : Zephyr 4.3 (any Zephyr 4.x SPI master will work)
@@ -97,18 +97,26 @@ jobs:
           cat > "${DEST}/FLASH_INSTRUCTIONS.md" << 'FLASH_GUIDE'
           # Flash Instructions – ESP32-C6 SPI Full-duplex Firmware (Zephyr host)
 
+          ## One-pin interrupt mode
+
+          This firmware uses **one-pin interrupt mode**: the Handshake and Data Ready
+          signals are merged onto the **same physical wire** (GPIO 15).  The Zephyr host
+          needs to connect only **one interrupt GPIO** – a rising edge on that pin means
+          "wake up and perform an SPI transaction."
+
           ## SPI Wiring
 
-          | Signal         | ESP32-C6 GPIO | Connect to Zephyr host |
-          |----------------|---------------|------------------------|
-          | MOSI           | GPIO 7        | SPI MOSI               |
-          | MISO           | GPIO 2        | SPI MISO               |
-          | SCLK           | GPIO 6        | SPI CLK                |
-          | CS             | GPIO 10       | SPI CS                 |
-          | **Handshake**  | **GPIO 15**   | Any GPIO (input, IRQ)  |
-          | Data Ready     | GPIO 4        | Any GPIO (input, IRQ)  |
-          | Reset          | EN / RST      | Optional GPIO (output) |
+          | Signal                         | ESP32-C6 GPIO        | Connect to Zephyr host              |
+          |--------------------------------|----------------------|-------------------------------------|
+          | MOSI                           | GPIO 7               | SPI MOSI                            |
+          | MISO                           | GPIO 2               | SPI MISO                            |
+          | SCLK                           | GPIO 6               | SPI CLK                             |
+          | CS                             | GPIO 10              | SPI CS                              |
+          | **Handshake + Data Ready**     | **GPIO 15**          | Single GPIO (input, rising-edge IRQ)|
+          | Reset                          | EN / RST             | Optional GPIO (output)              |
 
+          > Both Handshake and Data Ready are driven on GPIO 15.  The pin goes HIGH
+          > whenever the co-processor is ready for a transaction **or** has data to send.
           > Bluetooth HCI is tunnelled over the same SPI bus; no extra UART wires needed.
 
           ## Flash Command
@@ -139,8 +147,8 @@ jobs:
           In your Zephyr application enable:
           - `CONFIG_WIFI_ESP_HOSTED=y`        – Wi-Fi via ESP-Hosted
           - `CONFIG_BT=y` + `CONFIG_BT_HCI_ESP_HOSTED=y` – Bluetooth via ESP-Hosted
-          - Set the SPI device node to match the wiring table above.
-          - Set the handshake GPIO to GPIO 15 on the ESP32-C6 side.
+          - Map a single interrupt-capable GPIO on the host to GPIO 15 on the ESP32-C6.
+          - Configure that GPIO as a rising-edge interrupt (one-pin mode).
           FLASH_GUIDE
 
           echo "Artifacts in ${DEST}:"

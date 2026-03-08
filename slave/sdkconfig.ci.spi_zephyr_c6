@@ -1,11 +1,21 @@
 # sdkconfig overlay for ESP32-C6 co-processor: SPI Full-duplex, Zephyr 4.x host
-# Handshake pin: IO15 (user-specified)
-# All other SPI pins use ESP32-C6 standalone defaults:
-#   MOSI = GPIO7, MISO = GPIO2, SCLK = GPIO6, CS = GPIO10
-# Data Ready = GPIO4, Reset = -1 (reuse EN pin)
+#
+# One-pin interrupt mode: Handshake and Data Ready are merged onto GPIO15.
+# Both signals share the same physical wire so the Zephyr host only needs
+# a single GPIO interrupt line (rising-edge triggered).
+#
+# Pin assignment:
+#   MOSI       = GPIO7   (ESP32-C6 standalone default)
+#   MISO       = GPIO2   (ESP32-C6 standalone default)
+#   SCLK       = GPIO6   (ESP32-C6 standalone default)
+#   CS         = GPIO10  (ESP32-C6 standalone default)
+#   Handshake  = GPIO15  (user-specified, shared with Data Ready)
+#   Data Ready = GPIO15  (merged with Handshake — one-pin interrupt mode)
+#   Reset      = -1      (reuse EN/RST pin)
 
 # 1. Transport: SPI Full-duplex
 CONFIG_ESP_SPI_HOST_INTERFACE=y
 
-# 2. Override handshake GPIO to IO15
+# 2. One-pin interrupt mode: both Handshake and Data Ready on GPIO15
 CONFIG_ESP_SPI_GPIO_HANDSHAKE=15
+CONFIG_ESP_SPI_GPIO_DATA_READY=15
