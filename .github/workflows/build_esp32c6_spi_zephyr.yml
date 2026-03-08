@@ -1,0 +1,186 @@
+name: Build ESP32-C6 Slave Firmware (SPI Full-duplex, Zephyr host)
+
+# Trigger: manual dispatch, or on pushes/PRs that touch relevant files.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'slave/**'
+      - 'common/**'
+      - '.github/workflows/build_esp32c6_spi_zephyr.yml'
+  pull_request:
+    paths:
+      - 'slave/**'
+      - 'common/**'
+      - '.github/workflows/build_esp32c6_spi_zephyr.yml'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Build configuration
+#
+# Target chip  : ESP32-C6
+# Transport    : SPI Full-duplex
+# Handshake    : GPIO15  (user-specified)
+# Data Ready   : GPIO15  (merged with Handshake — one-pin interrupt mode)
+# MOSI         : GPIO7   (default for standalone ESP32-C6)
+# MISO         : GPIO2   (default for standalone ESP32-C6)
+# SCLK         : GPIO6   (default for standalone ESP32-C6)
+# CS           : GPIO10  (default for standalone ESP32-C6)
+# Reset        : -1      (reuse EN/RST pin)
+# Bluetooth    : enabled (HCI over SPI, default for C6)
+# Host RTOS    : Zephyr 4.3 (any Zephyr 4.x SPI master will work)
+# IDF version  : v5.4
+# ─────────────────────────────────────────────────────────────────────────────
+
+jobs:
+  build-esp32c6-spi-zephyr:
+    name: ESP32-C6 SPI FD – Zephyr host (IO15 handshake)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    # Use the official Espressif IDF Docker image so the build environment
+    # exactly mirrors the project's existing GitLab CI pipelines.
+    container:
+      image: espressif/idf:v5.4
+
+    steps:
+      # -----------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # -----------------------------------------------------------------------
+      # Install idf-build-apps (not bundled in the IDF Docker image by default)
+      - name: Install idf-build-apps
+        shell: bash
+        run: |
+          . ${IDF_PATH}/export.sh
+          pip install idf-build-apps
+
+      # -----------------------------------------------------------------------
+      # Build the slave coprocessor firmware using idf-build-apps, following
+      # the same pattern as .gitlab/ci/templates.yml (.build_template_coprocessor).
+      - name: Build slave firmware for ESP32-C6 (SPI FD, IO15 handshake)
+        shell: bash
+        run: |
+          . ${IDF_PATH}/export.sh
+          cd slave
+          # idf-build-apps merges sdkconfig.defaults, sdkconfig.defaults.esp32c6,
+          # and sdkconfig.ci.spi_zephyr_c6 automatically in that order.
+          idf-build-apps find \
+            -p . \
+            --enable-preview-targets \
+            --config sdkconfig.ci.spi_zephyr_c6 \
+            -vv \
+            --target esp32c6
+          idf-build-apps build \
+            -p . \
+            --enable-preview-targets \
+            --config sdkconfig.ci.spi_zephyr_c6 \
+            -vv \
+            --target esp32c6
+
+      # -----------------------------------------------------------------------
+      # Collect the three flashable binaries plus the flasher_args file into a
+      # single flat directory for easy download.
+      - name: Collect firmware artifacts
+        shell: bash
+        run: |
+          DEST=firmware_esp32c6_spi_zephyr
+          mkdir -p "${DEST}"
+
+          # idf-build-apps places output under slave/build_<target>_<config>/
+          BUILD_DIR=$(find slave -maxdepth 1 -type d -name 'build_esp32c6*' | head -1)
+          echo "Build directory: ${BUILD_DIR}"
+
+          cp "${BUILD_DIR}/network_adapter.bin"                         "${DEST}/"
+          cp "${BUILD_DIR}/bootloader/bootloader.bin"                    "${DEST}/"
+          cp "${BUILD_DIR}/partition_table/partition-table.bin"          "${DEST}/"
+          cp "${BUILD_DIR}/flasher_args.json"                            "${DEST}/" 2>/dev/null || true
+          cp "${BUILD_DIR}/flash_project_args"                           "${DEST}/" 2>/dev/null || true
+          cp "${BUILD_DIR}/sdkconfig"                                    "${DEST}/" 2>/dev/null || true
+
+          # Write a human-readable flashing guide
+          cat > "${DEST}/FLASH_INSTRUCTIONS.md" << 'FLASH_GUIDE'
+          # Flash Instructions – ESP32-C6 SPI Full-duplex Firmware (Zephyr host)
+
+          ## Where to find the compiled binaries / 编译产物在哪里
+
+          The three `.bin` files are uploaded as a **GitHub Actions artifact** at the end
+          of every successful CI run.  To download them:
+
+          1. Open the repository on GitHub and click the **Actions** tab.
+          2. Select the workflow run named
+             **"Build ESP32-C6 Slave Firmware (SPI Full-duplex, Zephyr host)"**.
+          3. Scroll to the **Artifacts** section at the bottom of the run summary page.
+          4. Click **`esp32c6-spi-zephyr-firmware`** to download a ZIP archive.
+          5. Extract the ZIP.  It contains:
+
+          | File                    | Flash address | Description                  |
+          |-------------------------|---------------|------------------------------|
+          | `bootloader.bin`        | `0x0000`      | Second-stage bootloader      |
+          | `partition-table.bin`   | `0x8000`      | Partition table              |
+          | `network_adapter.bin`   | `0x10000`     | Main application firmware    |
+          | `flasher_args.json`     | —             | esptool address map          |
+          | `flash_project_args`    | —             | idf.py flash arguments       |
+          | `sdkconfig`             | —             | Resolved build configuration |
+          | `FLASH_INSTRUCTIONS.md` | —             | This file                    |
+
+          > Artifacts are retained for **90 days**.  If the link has expired, trigger a
+          > new build via **Actions → Run workflow** (workflow_dispatch).
+
+          ---
+
+          ## One-pin interrupt mode
+
+          This firmware uses **one-pin interrupt mode**: the Handshake and Data Ready
+          signals are merged onto the **same physical wire** (GPIO 15).  The Zephyr host
+          needs to connect only **one interrupt GPIO** – a rising edge on that pin means
+          "wake up and perform an SPI transaction."
+
+          ## SPI Wiring
+
+          | Signal                         | ESP32-C6 GPIO        | Connect to Zephyr host              |
+          |--------------------------------|----------------------|-------------------------------------|
+          | MOSI                           | GPIO 7               | SPI MOSI                            |
+          | MISO                           | GPIO 2               | SPI MISO                            |
+          | SCLK                           | GPIO 6               | SPI CLK                             |
+          | CS                             | GPIO 10              | SPI CS                              |
+          | **Handshake + Data Ready**     | **GPIO 15**          | Single GPIO (input, rising-edge IRQ)|
+          | Reset                          | EN / RST             | Optional GPIO (output)              |
+
+          ## Flash Command
+
+          Make sure `esptool.py` is installed (`pip install esptool`), then:
+
+          ```bash
+          esptool.py \
+            --chip esp32c6 \
+            --port /dev/ttyUSB0 \
+            --baud 460800 \
+            --before default_reset \
+            --after hard_reset \
+            write_flash \
+              0x0000 bootloader.bin \
+              0x8000 partition-table.bin \
+              0x10000 network_adapter.bin
+          ```
+
+          Or use the generated `flash_project_args` with `idf.py`:
+
+          ```bash
+          idf.py -p /dev/ttyUSB0 flash
+          ```
+          FLASH_GUIDE
+
+          echo "Artifacts in ${DEST}:"
+          ls -lh "${DEST}"
+
+      # -----------------------------------------------------------------------
+      - name: Upload firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: esp32c6-spi-zephyr-firmware
+          path: firmware_esp32c6_spi_zephyr/
+          retention-days: 90
