@@ -124,6 +124,52 @@ idf.py -p <SERIAL_PORT> flash monitor
 > [!TIP]
 > You can **customize** the serial port (`<SERIAL_PORT>`) to match your specific hardware connection.
 
+### 6. Where Are the Compiled BIN Files? / 编译的 BIN 文件在哪里？
+
+#### Option A – Local build (`idf.py build`)
+
+After a successful `idf.py build` the three flashable binaries are placed inside the **`slave/build/`** directory:
+
+| File | Flash address | Description |
+|------|--------------|-------------|
+| `slave/build/network_adapter.bin` | `0x10000` | Main application firmware |
+| `slave/build/bootloader/bootloader.bin` | `0x0000` | Second-stage bootloader |
+| `slave/build/partition_table/partition-table.bin` | `0x8000` | Partition table |
+| `slave/build/flasher_args.json` | — | esptool address map |
+| `slave/build/flash_project_args` | — | Shortcut args for `idf.py flash` |
+
+Flash all three binaries at once with:
+
+```bash
+esptool.py \
+  --chip esp32c6 \
+  --port /dev/ttyUSB0 \
+  --baud 460800 \
+  write_flash \
+    0x0000  slave/build/bootloader/bootloader.bin \
+    0x8000  slave/build/partition_table/partition-table.bin \
+    0x10000 slave/build/network_adapter.bin
+```
+
+or simply:
+
+```bash
+idf.py -p /dev/ttyUSB0 flash
+```
+
+#### Option B – GitHub Actions CI artifact
+
+Every successful run of the **"Build ESP32-C6 Slave Firmware (SPI Full-duplex, Zephyr host)"** workflow uploads a ready-to-use ZIP artifact:
+
+1. Open the repository on GitHub and click the **Actions** tab.
+2. Select the workflow run for your commit/branch.
+3. Scroll to the **Artifacts** section at the bottom of the run summary page.
+4. Download **`esp32c6-spi-zephyr-firmware`** (ZIP archive, retained for 90 days).
+5. Extract the ZIP – it contains all three `.bin` files plus the flash instructions.
+
+> [!NOTE]
+> If the artifact link has expired, trigger a fresh build via **Actions → Run workflow** (workflow_dispatch).
+
 
 ## References
 
